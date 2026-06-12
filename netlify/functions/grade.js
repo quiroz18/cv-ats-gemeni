@@ -1,13 +1,9 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const https = require("https");
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY, {
-  apiVersion: "v1"
-});
-const SYSTEM_INSTRUCTION = `You are an expert ATS (Applicant Tracking System) analyst and CV consultant.
-Your job is to score a CV against a job description across 6 categories (0-100 each), identify keyword hits and gaps, list strengths and weaknesses, and provide numbered improvement recommendations.
-Always respond with valid JSON only — no markdown, no preamble, no explanation outside the JSON.`;
+const SYSTEM_INSTRUCTION = `You are an expert ATS analyst and CV consultant. Score a CV against a job description across 6 categories (0-100 each), identify keyword hits and gaps, list strengths and weaknesses, and provide numbered improvement recommendations. Always respond with valid JSON only — no markdown, no preamble.`;
 
-const GRADE_PROMPT = (jd, cvText) => `
+const GRADE_PROMPT = (jd, cvText) => `${SYSTEM_INSTRUCTION}
+
 Analyze this CV against the job description.
 
 JOB DESCRIPTION:
@@ -35,6 +31,44 @@ Respond ONLY with this exact JSON structure (no markdown, no backticks):
   "recommendations": ["<numbered recommendation>"]
 }`;
 
+function callGemini(apiKey, prompt) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.4, maxOutputTokens: 2000 }
+    });
+
+    const options = {
+      hostname: "generativelanguage.googleapis.com",
+      path: `/v1/models/gemini-pro:generateContent?key=${apiKey}`,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body)
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.error) return reject(new Error(json.error.message));
+          const text = json.candidates[0].content.parts[0].text;
+          resolve(text);
+        } catch (e) {
+          reject(new Error("Failed to parse Gemini response: " + data));
+        }
+      });
+    });
+
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 exports.handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
@@ -42,49 +76,22 @@ exports.handler = async (event) => {
     "Content-Type": "application/json",
   };
 
-  if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 200, headers, body: "" };
-  }
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, headers, body: "Method Not Allowed" };
-  }
+  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers, body: "" };
+  if (event.httpMethod !== "POST") return { statusCode: 405, headers, body: "Method Not Allowed" };
 
   try {
-    const { jobDescription, cvText, cvBase64 } = JSON.parse(event.body);
+    const { jobDescription, cvText } = JSON.parse(event.body);
+    if (!jobDescription) return { statusCode: 400, headers, body: JSON.stringify({ error: "Job description is required" }) };
 
-    if (!jobDescription) {
-      return { statusCode: 400, headers, body: JSON.stringify({ error: "Job description is required" }) };
-    }
-
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      systemInstruction: SYSTEM_INSTRUCTION,
-    });
-
-    let parts;
-
-    if (cvBase64) {
-      // Pass PDF inline to Gemini
-      parts = [
-        {
-          inlineData: {
-            mimeType: "application/pdf",
-            data: cvBase64,
-          },
-        },
-        { text: GRADE_PROMPT(jobDescription, "") },
-      ];
-    } else {
-      parts = [{ text: GRADE_PROMPT(jobDescription, cvText || "") }];
-    }
-
-    const result = await model.generateContent({ contents: [{ role: "user", parts }] });
-    const text = result.response.text().trim().replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(text);
+    const apiKey = process.env.GEMINI_API_KEY;
+    const prompt = GRADE_PROMPT(jobDescription, cvText || "");
+    const text = await callGemini(apiKey, prompt);
+    const clean = text.trim().replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(clean);
 
     return { statusCode: 200, headers, body: JSON.stringify(parsed) };
   } catch (err) {
-    console.error("Gemini grade error:", err);
+    console.error("Grade error:", err);
     return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) };
   }
 };
