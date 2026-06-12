@@ -1,0 +1,7 @@
+{
+  "name": "cv-ats-functions-gemini",
+  "version": "1.0.0",
+  "dependencies": {
+    "@google/generative-ai": "^0.15.0"
+  }
+}
