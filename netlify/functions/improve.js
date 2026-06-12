@@ -1,6 +1,8 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY, {
+  apiVersion: "v1"
+});
 
 const SYSTEM_INSTRUCTION = `You are an expert CV writer and ATS optimization specialist.
 Your job is to rewrite a CV to better match a job description, then rescore it.
@@ -56,7 +58,7 @@ exports.handler = async (event) => {
     const { jobDescription, cvText, originalScore, originalCategories } = JSON.parse(event.body);
 
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash-latest",
+      model: "gemini-1.5-flash",
       systemInstruction: SYSTEM_INSTRUCTION,
     });
 
