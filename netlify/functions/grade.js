@@ -1,7 +1,8 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY, {
+  apiVersion: "v1"
+});
 const SYSTEM_INSTRUCTION = `You are an expert ATS (Applicant Tracking System) analyst and CV consultant.
 Your job is to score a CV against a job description across 6 categories (0-100 each), identify keyword hits and gaps, list strengths and weaknesses, and provide numbered improvement recommendations.
 Always respond with valid JSON only — no markdown, no preamble, no explanation outside the JSON.`;
@@ -56,7 +57,7 @@ exports.handler = async (event) => {
     }
 
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash-latest",
+      model: "gemini-1.5-flash",
       systemInstruction: SYSTEM_INSTRUCTION,
     });
 
